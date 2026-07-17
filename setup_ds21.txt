@@ -9,6 +9,7 @@
 ################################################################################
 # IMPORTANTE: Ejecutar como root salvo donde se indique lo contrario
 # Usuario administrador de EasyBuild/LMOD: modules (home en /data/modules)
+# Todo el software cientifico se instala via EasyBuild y se carga con LMOD
 ################################################################################
 
 
@@ -17,12 +18,10 @@
 # Ejecutar como root
 ################################################################################
 
-# 1.1 Habilitar repositorios
 dnf install -y epel-release
 dnf config-manager --set-enabled crb
 dnf update -y
 
-# 1.2 Herramientas base de compilacion
 dnf install -y gcc gcc-c++ make cmake git wget curl
 dnf install -y bzip2 bzip2-devel xz xz-devel
 dnf install -y zlib-devel libffi-devel openssl-devel
@@ -30,7 +29,7 @@ dnf install -y readline-devel sqlite-devel tk-devel
 dnf install -y lua lua-devel lua-filesystem lua-posix lua-term lua-json
 dnf install -y tcl environment-modules
 dnf install -y python3 python3-pip python3-devel
-dnf install -y perl perl-devel perl-CPAN
+dnf install -y perl perl-devel
 dnf install -y patch patchutils
 dnf install -y libibverbs-devel rdma-core-devel
 dnf install -y hwloc hwloc-devel
@@ -38,11 +37,8 @@ dnf install -y numactl numactl-devel
 dnf install -y pmix pmix-devel
 dnf install -y libevent libevent-devel
 dnf install -y ucx ucx-devel
-
-# 1.3 Instalar Lmod desde EPEL
 dnf install -y Lmod
 
-# Verificar Lmod
 ml --version
 
 
@@ -51,25 +47,22 @@ ml --version
 # Ejecutar como root
 ################################################################################
 
-# 2.1 Crear usuario modules con home en /data
 useradd -m -d /data/modules modules
 
-# 2.2 Crear directorios de EasyBuild
 mkdir -p /data/easybuild/software
 mkdir -p /data/easybuild/modules/all
 mkdir -p /data/easybuild/sources
 mkdir -p /data/easybuild/build
 mkdir -p /data/easybuild/ebfiles_repo
+mkdir -p /data/easybuild/logs
 chown -R modules:modules /data/easybuild
 chmod -R 755 /data/easybuild
 
-# 2.3 Instalar EasyBuild como usuario modules
-# Cambiar a usuario modules:
+# Cambiar a usuario modules
 su - modules
 
 pip3 install easybuild --user
 
-# Configurar variables de entorno (agregar a ~/.bashrc del usuario modules)
 echo "export PATH=/data/modules/.local/bin:$PATH" >> ~/.bashrc
 echo "export EASYBUILD_INSTALLPATH=/data/easybuild" >> ~/.bashrc
 echo "export EASYBUILD_SOURCEPATH=/data/easybuild/sources" >> ~/.bashrc
@@ -80,10 +73,8 @@ echo "export EASYBUILD_MODULE_NAMING_SCHEME=EasyBuildMNS" >> ~/.bashrc
 echo "export MODULEPATH=/data/easybuild/modules/all:$MODULEPATH" >> ~/.bashrc
 source ~/.bashrc
 
-# Verificar EasyBuild
 eb --version
 
-# Salir de usuario modules
 exit
 
 
@@ -92,10 +83,7 @@ exit
 # Ejecutar como root
 ################################################################################
 
-# Agregar modulos de EasyBuild al MODULEPATH global
 echo "export MODULEPATH=/data/easybuild/modules/all:$MODULEPATH" >> /etc/profile.d/lmod.sh
-
-# Verificar que lmod carga al iniciar sesion
 source /etc/profile.d/lmod.sh
 ml avail
 
@@ -103,149 +91,178 @@ ml avail
 ################################################################################
 # BLOQUE 4 - DRIVERS NVIDIA H200 Y CUDA
 # Ejecutar como root
+# NOTA: Requiere reboot antes de instalar el driver
 ################################################################################
 
-# 4.1 Instalar dependencias de kernel
 dnf install -y kernel-devel-$(uname -r)
 dnf install -y kernel-headers-$(uname -r)
 dnf install -y gcc make dkms
 
-# 4.2 Blacklist driver nouveau
 echo "blacklist nouveau" > /etc/modprobe.d/blacklist-nouveau.conf
 echo "options nouveau modeset=0" >> /etc/modprobe.d/blacklist-nouveau.conf
 dracut --force
 
-# 4.3 REINICIAR EL SERVIDOR ANTES DE CONTINUAR
+# *** REINICIAR ANTES DE CONTINUAR ***
 reboot
 
-# --- Despues del reboot, continuar como root ---
+# --- Despues del reboot ---
 
-# 4.4 Descargar e instalar driver NVIDIA 570 (H200 requiere >= 550)
 cd /tmp
 wget https://us.download.nvidia.com/tesla/570.158.01/NVIDIA-Linux-x86_64-570.158.01.run
 chmod +x NVIDIA-Linux-x86_64-570.158.01.run
-
-# Instalar driver (acepta defaults, instalar DKMS=si)
 ./NVIDIA-Linux-x86_64-570.158.01.run --silent --dkms
 
-# 4.5 Verificar driver
 nvidia-smi
 
-# 4.6 Instalar CUDA 12.6 via runfile
-cd /tmp
 wget https://developer.download.nvidia.com/compute/cuda/12.6.0/local_installers/cuda_12.6.0_560.28.03_linux.run
 chmod +x cuda_12.6.0_560.28.03_linux.run
 ./cuda_12.6.0_560.28.03_linux.run --silent --toolkit --no-drm
 
-# 4.7 Configurar CUDA en PATH global
 echo "export PATH=/usr/local/cuda/bin:$PATH" >> /etc/profile.d/cuda.sh
 echo "export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH" >> /etc/profile.d/cuda.sh
 source /etc/profile.d/cuda.sh
 
-# Verificar CUDA
 nvcc --version
-nvidia-smi
 
 
 ################################################################################
-# BLOQUE 5 - COMPILACION FOSS TOOLCHAIN CON EASYBUILD
+# BLOQUE 5 - FOSS TOOLCHAIN VIA EASYBUILD
 # Ejecutar como usuario modules
+# NOTA: Tarda varias horas, dejar corriendo en background
 ################################################################################
 
 su - modules
 
-# Verificar variables de entorno
-echo $EASYBUILD_INSTALLPATH
-echo $EASYBUILD_SOURCEPATH
-
-# Compilar FOSS 2025b (GCC 14.3 + OpenMPI + OpenBLAS + FFTW + ScaLAPACK)
-# NOTA: Esta compilacion tarda varias horas, dejar corriendo en background
 nohup eb foss-2025b.eb -r --ignore-checksums > /data/easybuild/logs/foss_build.log 2>&1 &
 echo $!
 
-# Monitorear progreso
 tail -f /data/easybuild/logs/foss_build.log
-
-# Verificar modulos disponibles al terminar
-ml avail
 
 exit
 
 
 ################################################################################
-# BLOQUE 6 - INSTALACION DE SOFTWARE CIENTIFICO CON EASYBUILD
-# Ejecutar como usuario modules (despues de que FOSS termine)
+# BLOQUE 6 - SOFTWARE CIENTIFICO VIA EASYBUILD
+# Ejecutar como usuario modules
+# NOTA: Esperar a que FOSS termine antes de continuar
 ################################################################################
 
 su - modules
 
-# 6.1 Python 3.12
+# Python 3.12
 nohup eb Python-3.12.3-GCCcore-13.3.0.eb -r --ignore-checksums > /data/easybuild/logs/python312.log 2>&1 &
 
-# 6.2 Python 3.13
+# Python 3.13
 nohup eb Python-3.13.1-GCCcore-14.2.0.eb -r --ignore-checksums > /data/easybuild/logs/python313.log 2>&1 &
 
-# 6.3 Python 3.14
+# Python 3.14
 nohup eb Python-3.14.2-GCCcore-15.2.0.eb -r --ignore-checksums > /data/easybuild/logs/python314.log 2>&1 &
 
-# 6.4 R 4.4
+# R 4.4
 nohup eb R-4.4.1-foss-2023b.eb -r --ignore-checksums > /data/easybuild/logs/r44.log 2>&1 &
 
-# 6.5 Julia
+# Julia
 nohup eb Julia-1.10.4-linux-x86_64.eb -r --ignore-checksums > /data/easybuild/logs/julia.log 2>&1 &
 
-# Verificar modulos instalados
+# UV - gestor de entornos Python
+nohup eb uv-0.4.25-GCCcore-13.3.0.eb -r --ignore-checksums > /data/easybuild/logs/uv.log 2>&1 &
+
+# Miniconda
+nohup eb Miniconda3-24.1.2-0.eb --ignore-checksums > /data/easybuild/logs/miniconda.log 2>&1 &
+
+# JupyterHub
+nohup eb JupyterHub-4.0.2-GCCcore-13.2.0.eb -r --ignore-checksums > /data/easybuild/logs/jupyterhub.log 2>&1 &
+
+# JupyterLab
+nohup eb JupyterLab-4.2.0-GCCcore-13.2.0.eb -r --ignore-checksums > /data/easybuild/logs/jupyterlab.log 2>&1 &
+
+# RStudio Server
+nohup eb RStudio-Server-2024.04.2+764-foss-2023b-Java-11.eb -r --ignore-checksums > /data/easybuild/logs/rstudio.log 2>&1 &
+
+# HuggingFace Transformers
+nohup eb transformers-4.40.0-foss-2023b.eb -r --ignore-checksums > /data/easybuild/logs/huggingface.log 2>&1 &
+
+# PyTorch con CUDA para H200
+nohup eb PyTorch-2.3.0-foss-2023b-CUDA-12.6.0.eb -r --ignore-checksums > /data/easybuild/logs/pytorch.log 2>&1 &
+
 ml avail
 
 exit
 
 
 ################################################################################
-# BLOQUE 7 - UV (GESTOR DE ENTORNOS PYTHON)
+# BLOQUE 7 - JUPYTERHUB CON BATCHSPAWNER
+# Ejecutar como root (despues de que JupyterHub este instalado via EasyBuild)
+################################################################################
+
+dnf install -y nodejs npm
+npm install -g configurable-http-proxy
+
+# Instalar batchspawner sobre el Python de EasyBuild
+source /etc/profile.d/lmod.sh
+ml JupyterHub/4.0.2-GCCcore-13.2.0
+pip install batchspawner
+
+mkdir -p /etc/jupyterhub
+mkdir -p /var/lib/jupyterhub
+
+cat > /etc/jupyterhub/jupyterhub_config.py << 'JUPYTER_CONF'
+c.JupyterHub.spawner_class = 'batchspawner.SlurmSpawner'
+c.JupyterHub.ip = '0.0.0.0'
+c.JupyterHub.port = 8000
+c.SlurmSpawner.batch_script = """#!/bin/bash
+#SBATCH --partition=main
+#SBATCH --job-name=jupyterhub-singleuser
+#SBATCH --output=/var/log/slurm/jupyter-%u-%j.log
+#SBATCH --cpus-per-task={cpu}
+#SBATCH --mem={mem}
+#SBATCH --time=08:00:00
+{prologue}
+{cmd}
+"""
+c.SlurmSpawner.req_memory = '4G'
+c.SlurmSpawner.req_nprocs = '2'
+c.SlurmSpawner.req_partition = 'main'
+c.Authenticator.admin_users = {'modules'}
+c.JupyterHub.db_url = 'sqlite:////var/lib/jupyterhub/jupyterhub.sqlite'
+JUPYTER_CONF
+
+cat > /etc/systemd/system/jupyterhub.service << 'JUPYTER_SVC'
+[Unit]
+Description=JupyterHub
+After=network.target slurmctld.service
+
+[Service]
+Type=simple
+User=root
+Environment="PATH=/data/easybuild/software/JupyterHub/4.0.2-GCCcore-13.2.0/bin:/usr/local/bin:/usr/bin"
+WorkingDirectory=/etc/jupyterhub
+ExecStart=jupyterhub -f /etc/jupyterhub/jupyterhub_config.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+JUPYTER_SVC
+
+systemctl daemon-reload
+systemctl enable jupyterhub
+systemctl start jupyterhub
+
+firewall-cmd --permanent --add-port=8000/tcp
+firewall-cmd --reload
+
+
+################################################################################
+# BLOQUE 8 - VSCODE SERVER (code-server)
 # Ejecutar como root
+# NOTA: Binario standalone, no tiene easyconfig disponible
 ################################################################################
 
-# Instalar UV globalmente
-curl -LsSf https://astral.sh/uv/install.sh | sh
-echo "export PATH=/root/.cargo/bin:$PATH" >> /etc/profile.d/uv.sh
-source /etc/profile.d/uv.sh
-uv --version
-
-
-################################################################################
-# BLOQUE 8 - RSTUDIO SERVER
-# Ejecutar como root
-################################################################################
-
-# Descargar e instalar RStudio Server
-cd /tmp
-wget https://download2.rstudio.org/server/rhel9/x86_64/rstudio-server-rhel-2024.04.2-764-x86_64.rpm
-dnf install -y rstudio-server-rhel-2024.04.2-764-x86_64.rpm
-
-# Configurar RStudio Server
-cat > /etc/rstudio/rserver.conf << 'RSTUDIO_CONF'
-www-port=8787
-rsession-which-r=/usr/bin/R
-RSTUDIO_CONF
-
-# Habilitar y arrancar servicio
-systemctl enable rstudio-server
-systemctl start rstudio-server
-systemctl status rstudio-server
-
-
-################################################################################
-# BLOQUE 9 - VSCODE SERVER (code-server)
-# Ejecutar como root
-################################################################################
-
-# Instalar code-server
 curl -fsSL https://code-server.dev/install.sh | sh
 
-# Configurar code-server como servicio global
 cat > /etc/systemd/system/code-server.service << 'CODESERVER_CONF'
 [Unit]
-Description=code-server
+Description=VSCode Server
 After=network.target
 
 [Service]
@@ -261,162 +278,104 @@ CODESERVER_CONF
 systemctl daemon-reload
 systemctl enable code-server
 systemctl start code-server
-systemctl status code-server
+
+firewall-cmd --permanent --add-port=8080/tcp
+firewall-cmd --reload
 
 
 ################################################################################
-# BLOQUE 10 - SLURM
+# BLOQUE 9 - SLURM 24.11
 # Ejecutar como root
-# Configuracion: 1 nodo (controller + compute)
-# 144 CPUs, 2 sockets, ~3TB RAM, 1 GPU H200 NVL
+# 144 CPUs | 2 sockets | 72 cores/socket | 3TB RAM | 1 GPU H200
+# Nodo unico: controller + compute
 ################################################################################
 
-# 10.1 Instalar dependencias de SLURM
 dnf install -y munge munge-libs munge-devel
 dnf install -y mariadb mariadb-server mariadb-devel
-dnf install -y openssl openssl-devel
-dnf install -y readline-devel
-dnf install -y pam-devel
-dnf install -y perl
+dnf install -y openssl openssl-devel readline-devel pam-devel perl
 
-# 10.2 Configurar y arrancar MariaDB (para slurmdbd)
 systemctl enable mariadb
 systemctl start mariadb
 
-# Configurar base de datos para SLURM
-mysql -u root << 'MYSQL_CONF'
-CREATE DATABASE slurm_acct_db;
-CREATE USER 'slurm'@'localhost' IDENTIFIED BY 'SlurmDBPass2026';
-GRANT ALL ON slurm_acct_db.* TO 'slurm'@'localhost';
-FLUSH PRIVILEGES;
-EXIT;
-MYSQL_CONF
+mysql -u root -e "CREATE DATABASE slurm_acct_db;"
+mysql -u root -e "CREATE USER 'slurm'@'localhost' IDENTIFIED BY 'SlurmDBPass2026';"
+mysql -u root -e "GRANT ALL ON slurm_acct_db.* TO 'slurm'@'localhost';"
+mysql -u root -e "FLUSH PRIVILEGES;"
 
-# 10.3 Configurar Munge
 dd if=/dev/urandom bs=1 count=1024 > /etc/munge/munge.key
 chown munge:munge /etc/munge/munge.key
 chmod 400 /etc/munge/munge.key
 systemctl enable munge
 systemctl start munge
-
-# Verificar munge
 munge -n | unmunge
 
-# 10.4 Descargar y compilar SLURM 24.11
 cd /tmp
 wget https://download.schedmd.com/slurm/slurm-24.11.5.tar.bz2
 tar xjf slurm-24.11.5.tar.bz2
 cd slurm-24.11.5
 
 ./configure --prefix=/usr --sysconfdir=/etc/slurm \
-  --with-munge=/usr --with-mysql_config=/usr/bin/mysql_config \
-  --with-pmix=/usr --with-ucx=/usr \
+  --with-munge=/usr \
+  --with-mysql_config=/usr/bin/mysql_config \
+  --with-pmix=/usr \
+  --with-ucx=/usr \
   --enable-pam
 
 make -j$(nproc)
 make install
 
-# Crear usuario slurm
 useradd -r -s /sbin/nologin slurm
+mkdir -p /var/spool/slurm/ctld /var/spool/slurm/d
+mkdir -p /var/log/slurm /etc/slurm /var/run/slurm
+chown -R slurm:slurm /var/spool/slurm /var/log/slurm /var/run/slurm
 
-# Crear directorios necesarios
-mkdir -p /var/spool/slurm/ctld
-mkdir -p /var/spool/slurm/d
-mkdir -p /var/log/slurm
-mkdir -p /etc/slurm
-chown -R slurm:slurm /var/spool/slurm
-chown -R slurm:slurm /var/log/slurm
-
-# 10.5 Configurar slurm.conf
 cat > /etc/slurm/slurm.conf << 'SLURM_CONF'
-# Configuracion SLURM - DS21 Banco Central de Chile
 ClusterName=ds21
 SlurmctldHost=srvdatscience21
-
-# Autenticacion
 AuthType=auth/munge
 CryptoType=crypto/munge
-
-# Puertos
 SlurmctldPort=6817
 SlurmdPort=6818
-
-# Directorios
 SlurmdSpoolDir=/var/spool/slurm/d
 SlurmctldPidFile=/var/run/slurm/slurmctld.pid
 SlurmdPidFile=/var/run/slurm/slurmd.pid
 StateSaveLocation=/var/spool/slurm/ctld
-
-# Logs
 SlurmctldLogFile=/var/log/slurm/slurmctld.log
 SlurmdLogFile=/var/log/slurm/slurmd.log
 SlurmctldDebug=info
 SlurmdDebug=info
-
-# Scheduling
 SchedulerType=sched/backfill
 SelectType=select/cons_tres
 SelectTypeParameters=CR_Core_Memory
-
-# Prioridades y fairshare
 PriorityType=priority/multifactor
 PriorityWeightFairshare=100
 PriorityWeightAge=10
 PriorityWeightJobSize=10
 PriorityDecayHalfLife=7-0
-
-# Accounting
 AccountingStorageType=accounting_storage/slurmdbd
 AccountingStorageHost=localhost
 AccountingStoragePort=6819
 AccountingStorageTres=gres/gpu
 JobAcctGatherType=jobacct_gather/cgroup
 JobAcctGatherFrequency=30
-
-# GPU
 GresTypes=gpu
-
-# Procesos
 MpiDefault=pmix
 ProctrackType=proctrack/cgroup
 TaskPlugin=task/cgroup,task/affinity
-
-# Timeouts
 SlurmctldTimeout=300
 SlurmdTimeout=300
 InactiveLimit=0
 MinJobAge=300
 KillWait=30
 Waittime=0
-
-# Nodo unico: controller + compute
-# 144 CPUs totales, 2 sockets, 72 cores por socket
-# 3 TB RAM, 1 GPU H200 NVL
-NodeName=srvdatscience21 \
-  CPUs=144 \
-  Sockets=2 \
-  CoresPerSocket=72 \
-  ThreadsPerCore=1 \
-  RealMemory=3093504 \
-  Gres=gpu:h200:1 \
-  State=UNKNOWN
-
-# Particion principal
-PartitionName=main \
-  Nodes=srvdatscience21 \
-  Default=YES \
-  MaxTime=INFINITE \
-  State=UP \
-  DefMemPerCPU=4096 \
-  MaxMemPerCPU=32768
+NodeName=srvdatscience21 CPUs=144 Sockets=2 CoresPerSocket=72 ThreadsPerCore=1 RealMemory=3093504 Gres=gpu:h200:1 State=UNKNOWN
+PartitionName=main Nodes=srvdatscience21 Default=YES MaxTime=INFINITE State=UP DefMemPerCPU=4096 MaxMemPerCPU=32768
 SLURM_CONF
 
-# 10.6 Configurar gres.conf para GPU
 cat > /etc/slurm/gres.conf << 'GRES_CONF'
 Name=gpu Type=h200 File=/dev/nvidia0 COREs=0-143
 GRES_CONF
 
-# 10.7 Configurar cgroup.conf
 cat > /etc/slurm/cgroup.conf << 'CGROUP_CONF'
 CgroupPlugin=cgroup/v2
 ConstrainCores=yes
@@ -425,7 +384,6 @@ ConstrainSwapSpace=yes
 ConstrainDevices=yes
 CGROUP_CONF
 
-# 10.8 Configurar slurmdbd.conf
 cat > /etc/slurm/slurmdbd.conf << 'SLURMDBD_CONF'
 AuthType=auth/munge
 DbdHost=localhost
@@ -443,11 +401,6 @@ SLURMDBD_CONF
 chmod 600 /etc/slurm/slurmdbd.conf
 chown slurm:slurm /etc/slurm/slurmdbd.conf
 
-# 10.9 Crear directorio PID
-mkdir -p /var/run/slurm
-chown slurm:slurm /var/run/slurm
-
-# 10.10 Crear servicios systemd
 cat > /etc/systemd/system/slurmctld.service << 'SLURMCTLD_SVC'
 [Unit]
 Description=Slurm controller daemon
@@ -499,7 +452,6 @@ Restart=on-failure
 WantedBy=multi-user.target
 SLURMDBD_SVC
 
-# 10.11 Habilitar y arrancar servicios SLURM
 systemctl daemon-reload
 systemctl enable slurmdbd slurmctld slurmd
 systemctl start slurmdbd
@@ -508,18 +460,14 @@ systemctl start slurmctld
 sleep 3
 systemctl start slurmd
 
-# 10.12 Verificar SLURM
 sinfo
 squeue
-sacct -a
 
-# 10.13 Configurar cluster en SLURM accounting
 sacctmgr add cluster ds21
 sacctmgr add account DMD Description="Departamento DMD" Organization=BCCh
 sacctmgr add account Experimentales Description="Estadisticas Experimentales" Organization=BCCh
 sacctmgr add account GIES Description="Gerencia GIES" Organization=BCCh
 
-# 10.14 Configurar firewall para SLURM
 firewall-cmd --permanent --add-port=6817/tcp
 firewall-cmd --permanent --add-port=6818/tcp
 firewall-cmd --permanent --add-port=6819/tcp
@@ -527,91 +475,18 @@ firewall-cmd --reload
 
 
 ################################################################################
-# BLOQUE 11 - JUPYTERHUB + BATCHSPAWNER
+# BLOQUE 10 - ACTIVE DIRECTORY (SSSD)
 # Ejecutar como root
+# Ajustar bcch.local y credenciales segun corresponda
 ################################################################################
 
-# 11.1 Instalar JupyterHub
-pip3 install jupyterhub
-pip3 install batchspawner
-pip3 install notebook jupyterlab
-
-# 11.2 Instalar nodejs para JupyterHub
-dnf install -y nodejs npm
-npm install -g configurable-http-proxy
-
-# 11.3 Configurar JupyterHub
-mkdir -p /etc/jupyterhub
-cat > /etc/jupyterhub/jupyterhub_config.py << 'JUPYTER_CONF'
-c.JupyterHub.spawner_class = 'batchspawner.SlurmSpawner'
-c.JupyterHub.ip = '0.0.0.0'
-c.JupyterHub.port = 8000
-
-c.SlurmSpawner.batch_script = """#!/bin/bash
-#SBATCH --partition=main
-#SBATCH --job-name=jupyterhub-singleuser
-#SBATCH --output=/var/log/slurm/jupyter-%u-%j.log
-#SBATCH --cpus-per-task={cpu}
-#SBATCH --mem={mem}
-#SBATCH --time=08:00:00
-{prologue}
-{cmd}
-"""
-
-c.SlurmSpawner.req_memory = '4G'
-c.SlurmSpawner.req_nprocs = '2'
-c.SlurmSpawner.req_partition = 'main'
-
-c.Authenticator.admin_users = {'modules'}
-c.JupyterHub.db_url = 'sqlite:////var/lib/jupyterhub/jupyterhub.sqlite'
-JUPYTER_CONF
-
-# 11.4 Crear directorio de datos JupyterHub
-mkdir -p /var/lib/jupyterhub
-
-# 11.5 Crear servicio systemd para JupyterHub
-cat > /etc/systemd/system/jupyterhub.service << 'JUPYTER_SVC'
-[Unit]
-Description=JupyterHub
-After=network.target slurmctld.service
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/etc/jupyterhub
-ExecStart=/usr/local/bin/jupyterhub -f /etc/jupyterhub/jupyterhub_config.py
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-JUPYTER_SVC
-
-systemctl daemon-reload
-systemctl enable jupyterhub
-systemctl start jupyterhub
-systemctl status jupyterhub
-
-# Abrir firewall
-firewall-cmd --permanent --add-port=8000/tcp
-firewall-cmd --reload
-
-
-################################################################################
-# BLOQUE 12 - ACTIVE DIRECTORY (SSSD)
-# Ejecutar como root
-################################################################################
-
-# 12.1 Instalar paquetes necesarios
 dnf install -y sssd sssd-ad sssd-tools
 dnf install -y realmd adcli oddjob oddjob-mkhomedir
 dnf install -y krb5-workstation
 
-# 12.2 Unirse al dominio AD del Banco Central
-# REEMPLAZAR bcch.local con el dominio real y ajustar credenciales
 realm discover bcch.local
 realm join bcch.local -U Administrador
 
-# 12.3 Configurar SSSD para acceso solo grupo HPC
 cat > /etc/sssd/sssd.conf << 'SSSD_CONF'
 [sssd]
 domains = bcch.local
@@ -636,126 +511,87 @@ SSSD_CONF
 chmod 600 /etc/sssd/sssd.conf
 systemctl enable sssd
 systemctl restart sssd
-
-# 12.4 Habilitar creacion automatica de directorios home
 authselect select sssd with-mkhomedir --force
 systemctl enable oddjobd
 systemctl start oddjobd
 
-# 12.5 Verificar AD
 id usuario_ad_prueba
-getent passwd usuario_ad_prueba
 
 
 ################################################################################
-# BLOQUE 13 - HUGGINGFACE Y NEXUS
+# BLOQUE 11 - NEXUS Y HUGGINGFACE
 # Ejecutar como root
+# Ajustar URL Nexus segun corresponda
 ################################################################################
 
-# 13.1 Instalar librerias HuggingFace globalmente
-pip3 install transformers
-pip3 install huggingface_hub
-pip3 install datasets
-pip3 install accelerate
-
-# 13.2 Configurar cache de HuggingFace en /data
-echo "export HF_HOME=/data/huggingface_cache" >> /etc/profile.d/huggingface.sh
-echo "export HUGGINGFACE_HUB_CACHE=/data/huggingface_cache/hub" >> /etc/profile.d/huggingface.sh
-mkdir -p /data/huggingface_cache
-chmod 777 /data/huggingface_cache
-
-# 13.3 Configurar acceso a Nexus (ajustar URL segun el Nexus del Banco)
-# Para pip apuntar a Nexus:
 cat > /etc/pip.conf << 'PIP_CONF'
 [global]
 index-url = https://nexus.bcch.local/repository/pypi-proxy/simple/
 trusted-host = nexus.bcch.local
 PIP_CONF
 
-# Para conda/uv apuntar a Nexus:
-echo "extra-index-url = https://nexus.bcch.local/repository/pypi-proxy/simple/" >> /etc/pip.conf
+mkdir -p /data/huggingface_cache/hub
+chmod 777 /data/huggingface_cache
+
+cat > /etc/profile.d/huggingface.sh << 'HF_CONF'
+export HF_HOME=/data/huggingface_cache
+export HUGGINGFACE_HUB_CACHE=/data/huggingface_cache/hub
+HF_CONF
 
 
 ################################################################################
-# BLOQUE 14 - LIBRERIAS GIS BASE (requeridas por equipo Estadisticas)
+# BLOQUE 12 - LIBRERIAS GIS BASE
 # Ejecutar como root
+# Dependencias de sistema para modulos GIS de EasyBuild
 ################################################################################
 
-dnf install -y gdal gdal-devel
-dnf install -y proj proj-devel
-dnf install -y geos geos-devel
-dnf install -y hdf5 hdf5-devel
-dnf install -y netcdf netcdf-devel
-dnf install -y libgeotiff libgeotiff-devel
-dnf install -y libtiff libtiff-devel
-dnf install -y libpng-devel libjpeg-devel
-dnf install -y libcurl-devel expat-devel
+dnf install -y gdal gdal-devel proj proj-devel geos geos-devel
+dnf install -y hdf5 hdf5-devel netcdf netcdf-devel
+dnf install -y libgeotiff libgeotiff-devel libtiff libtiff-devel
+dnf install -y libpng-devel libjpeg-devel libcurl-devel expat-devel
 dnf install -y spatialindex spatialindex-devel
 
-# Verificar versiones
 gdal-config --version
 proj --version
-geos-config --version
 
 
 ################################################################################
-# BLOQUE 15 - NFS HACIA ESTACIONES DE ESCRITORIO
+# BLOQUE 13 - NFS HACIA ESTACIONES DE ESCRITORIO
 # Ejecutar como root
+# Ajustar red segun segmento real de las estaciones
 ################################################################################
 
-# 15.1 Instalar NFS
 dnf install -y nfs-utils
-
-# 15.2 Crear directorio compartido de resultados
 mkdir -p /data/resultados
 chmod 775 /data/resultados
 chown root:users /data/resultados
 
-# 15.3 Configurar exports NFS
-# REEMPLAZAR la red con la red real de las estaciones de escritorio
 echo "/data/resultados 172.20.0.0/24(rw,sync,no_subtree_check,no_root_squash)" >> /etc/exports
 
-# 15.4 Habilitar y arrancar NFS
 systemctl enable nfs-server
 systemctl start nfs-server
 exportfs -arv
 
-# 15.5 Firewall para NFS
 firewall-cmd --permanent --add-service=nfs
 firewall-cmd --permanent --add-service=rpc-bind
 firewall-cmd --permanent --add-service=mountd
 firewall-cmd --reload
 
-# Verificar exports
 showmount -e localhost
 
 
 ################################################################################
-# BLOQUE 16 - MONITOREO CON GRAFANA
+# BLOQUE 14 - MONITOREO NODE EXPORTER
 # Ejecutar como root
 ################################################################################
 
-# 16.1 Agregar repo de Grafana
-cat > /etc/yum.repos.d/grafana.repo << 'GRAFANA_REPO'
-[grafana]
-name=grafana
-baseurl=https://rpm.grafana.com
-repo_gpgcheck=1
-enabled=1
-gpgcheck=1
-gpgkey=https://rpm.grafana.com/gpg.key
-sslverify=1
-sslcacert=/etc/pki/tls/certs/ca-bundle.crt
-GRAFANA_REPO
-
-# 16.2 Instalar Prometheus node_exporter
 cd /tmp
 wget https://github.com/prometheus/node_exporter/releases/download/v1.8.0/node_exporter-1.8.0.linux-amd64.tar.gz
 tar xzf node_exporter-1.8.0.linux-amd64.tar.gz
 cp node_exporter-1.8.0.linux-amd64/node_exporter /usr/local/bin/
 chmod +x /usr/local/bin/node_exporter
+mkdir -p /var/lib/node_exporter/textfile_collector
 
-# 16.3 Crear servicio node_exporter
 cat > /etc/systemd/system/node_exporter.service << 'NODE_EXPORTER_SVC'
 [Unit]
 Description=Node Exporter
@@ -771,31 +607,27 @@ Restart=on-failure
 WantedBy=multi-user.target
 NODE_EXPORTER_SVC
 
-mkdir -p /var/lib/node_exporter/textfile_collector
 systemctl daemon-reload
 systemctl enable node_exporter
 systemctl start node_exporter
 
-# 16.4 Agregar DS21 como target en Prometheus
-# En el servidor de Prometheus (srvhcpgrafana), agregar a prometheus.yml:
-# - job_name: 'ds21'
-#   static_configs:
-#     - targets: ['srvdatscience21:9100']
-
-# 16.5 Firewall para node_exporter
 firewall-cmd --permanent --add-port=9100/tcp
 firewall-cmd --reload
 
-# Verificar metricas
-curl http://localhost:9100/metrics | head -20
+curl http://localhost:9100/metrics | head -10
+
+# En servidor srvhcpgrafana agregar en prometheus.yml:
+# - job_name: 'ds21'
+#   static_configs:
+#     - targets: ['srvdatscience21:9100']
+# Luego: systemctl reload prometheus
 
 
 ################################################################################
-# BLOQUE 17 - HARDENING
+# BLOQUE 15 - HARDENING
 # Ejecutar como root
 ################################################################################
 
-# 17.1 Configurar SSH
 cat > /etc/ssh/sshd_config.d/hpc-hardening.conf << 'SSH_CONF'
 Port 2222
 PermitRootLogin no
@@ -809,16 +641,12 @@ ClientAliveInterval 300
 ClientAliveCountMax 2
 SSH_CONF
 
-# 17.2 Reiniciar SSH con nuevo puerto
 systemctl restart sshd
-
-# Abrir nuevo puerto en firewall y cerrar 22
 firewall-cmd --permanent --add-port=2222/tcp
 firewall-cmd --permanent --remove-service=ssh
 firewall-cmd --reload
 
-# 17.3 Configurar cgroups v2 para limitar sesiones interactivas
-# (Complementa el control de SLURM para sesiones fuera de jobs)
+mkdir -p /etc/systemd/system/user-.slice.d
 cat > /etc/systemd/system/user-.slice.d/memory-limit.conf << 'CGROUP_LIMIT'
 [Slice]
 MemoryMax=32G
@@ -826,17 +654,11 @@ CPUQuota=800%
 CGROUP_LIMIT
 
 systemctl daemon-reload
+systemctl disable bluetooth cups avahi-daemon
 
-# 17.4 Deshabilitar servicios innecesarios
-systemctl disable bluetooth
-systemctl disable cups
-systemctl disable avahi-daemon
-
-# 17.5 Configurar SELinux en modo enforcing
 setenforce 1
 sed -i 's/SELINUX=permissive/SELINUX=enforcing/' /etc/selinux/config
 
-# 17.6 Actualizaciones automaticas de seguridad
 dnf install -y dnf-automatic
 sed -i 's/apply_updates = no/apply_updates = yes/' /etc/dnf/automatic.conf
 systemctl enable dnf-automatic.timer
@@ -844,72 +666,18 @@ systemctl start dnf-automatic.timer
 
 
 ################################################################################
-# BLOQUE 18 - MINICONDA (para entornos de usuario)
-# Ejecutar como root
+# BLOQUE 16 - VERIFICACIONES FINALES
 ################################################################################
 
-cd /tmp
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-chmod +x Miniconda3-latest-Linux-x86_64.sh
+systemctl status munge slurmdbd slurmctld slurmd code-server jupyterhub sssd node_exporter nfs-server --no-pager
 
-# Instalar en /data/miniconda para todos los usuarios
-./Miniconda3-latest-Linux-x86_64.sh -b -p /data/miniconda
-
-# Configurar acceso global
-echo "export PATH=/data/miniconda/bin:$PATH" >> /etc/profile.d/miniconda.sh
-source /etc/profile.d/miniconda.sh
-
-# Inicializar conda
-/data/miniconda/bin/conda init bash
-conda --version
-
-# Configurar permisos para que usuarios puedan crear sus propios envs
-chmod -R 755 /data/miniconda
-mkdir -p /data/conda_envs
-chmod 777 /data/conda_envs
-
-# Configurar conda para usar /data/conda_envs como directorio de entornos
-cat > /etc/conda/condarc << 'CONDARC'
-envs_dirs:
-  - /data/conda_envs
-  - ~/.conda/envs
-pkgs_dirs:
-  - /data/conda_pkgs
-CONDARC
-
-
-################################################################################
-# BLOQUE 19 - VERIFICACIONES FINALES
-# Ejecutar como root
-################################################################################
-
-echo "=== Estado de servicios ==="
-systemctl status munge --no-pager
-systemctl status slurmdbd --no-pager
-systemctl status slurmctld --no-pager
-systemctl status slurmd --no-pager
-systemctl status rstudio-server --no-pager
-systemctl status code-server --no-pager
-systemctl status jupyterhub --no-pager
-systemctl status sssd --no-pager
-systemctl status node_exporter --no-pager
-systemctl status nfs-server --no-pager
-
-echo "=== Estado del cluster SLURM ==="
 sinfo -o "%P %a %l %D %t %N"
 scontrol show node srvdatscience21
-
-echo "=== GPU ==="
 nvidia-smi
-
-echo "=== Modulos disponibles ==="
 ml avail
-
-echo "=== Espacio en disco ==="
 df -Th
-
-echo "=== Memoria ==="
 free -h
+srun --partition=main --gres=gpu:1 --pty nvidia-smi
 
 
 ################################################################################
