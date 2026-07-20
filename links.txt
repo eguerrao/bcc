@@ -1,1 +1,1 @@
-http://download.openpkg.org/components/cache/tcl/tcl9.0.1-src.tar.gz
+https://mirrors.omnios.org/tcl/tcl9.0.1-src.tar.gz
