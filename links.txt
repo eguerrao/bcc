@@ -4,3 +4,4 @@ https://ftp.postgresql.org/pub/source/v17.5/postgresql-17.5.tar.gz
 https://xorg.freedesktop.org/archive/individual/app/xauth-1.1.4.tar.gz
 https://xorg.freedesktop.org/archive/individual/xserver/xorg-server-21.1.18.tar.gz
 https://gitlab.dkrz.de/dkrz-sw/libaec/-/archive/v1.1.4/libaec-v1.1.4.tar.gz
+http://www.qhull.org/download/qhull-2020-src-8.0.2.tgz
